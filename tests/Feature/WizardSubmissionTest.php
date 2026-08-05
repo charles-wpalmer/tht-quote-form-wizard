@@ -14,6 +14,7 @@ test('guests cannot view wizards', function () {
 test('authenticated users can view active wizards', function () {
     $user = User::factory()->create();
     $active = Wizard::factory()->create(['name' => 'Quote Form']);
+    $active->createDraft()->publish($user);
     Wizard::factory()->inactive()->create(['name' => 'Hidden Wizard']);
 
     $this->actingAs($user)
@@ -21,6 +22,21 @@ test('authenticated users can view active wizards', function () {
         ->assertOk()
         ->assertSee('Quote Form')
         ->assertDontSee('Hidden Wizard');
+});
+
+test('unpublished wizards are hidden and return not found', function () {
+    $user = User::factory()->create();
+    $wizard = Wizard::factory()->create(['name' => 'Draft Only Wizard']);
+    $wizard->createDraft();
+
+    $this->actingAs($user)
+        ->get(route('wizards.index'))
+        ->assertOk()
+        ->assertDontSee('Draft Only Wizard');
+
+    $this->actingAs($user)
+        ->get(route('wizards.show', $wizard))
+        ->assertNotFound();
 });
 
 test('users can submit a wizard form', function () {
@@ -39,6 +55,9 @@ test('users can submit a wizard form', function () {
         'label' => 'Package',
         'sort' => 2,
     ]);
+
+    $wizard->createDraft()->publish($user);
+    $wizard->refresh();
 
     $this->actingAs($user);
 
@@ -68,6 +87,9 @@ test('required questions are validated', function () {
         'type' => QuestionType::Text,
         'is_required' => true,
     ]);
+
+    $wizard->createDraft()->publish($user);
+    $wizard->refresh();
 
     $this->actingAs($user);
 

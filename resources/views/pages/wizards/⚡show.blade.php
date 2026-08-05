@@ -14,6 +14,16 @@ new #[Title('Fill wizard')] class extends Component
     #[Locked]
     public Wizard $wizard;
 
+    #[Locked]
+    public string $name;
+
+    #[Locked]
+    public ?string $description = null;
+
+    /** @var array<int, object{id: int, label: string, type: QuestionType, options: array<int, string>|null, is_required: bool}> */
+    #[Locked]
+    public array $questions = [];
+
     /** @var array<string, mixed> */
     public array $answers = [];
 
@@ -21,23 +31,24 @@ new #[Title('Fill wizard')] class extends Component
 
     public function mount(Wizard $wizard): void
     {
-        abort_unless($wizard->is_active, 404);
+        abort_unless($wizard->is_active && $wizard->current_published_version_id, 404);
 
-        $this->wizard = $wizard->load(['questions']);
+        $this->wizard = $wizard->load('currentPublishedVersion');
+        $this->name = $this->wizard->currentPublishedVersion->content['name'];
+        $this->description = $this->wizard->currentPublishedVersion->content['description'];
+        $this->questions = $this->publishedQuestions();
 
-        foreach ($this->wizard->questions as $question) {
+        foreach ($this->questions as $question) {
             $this->answers[(string) $question->id] = $question->type === QuestionType::Checkbox ? [] : null;
         }
     }
 
     public function submit(): void
     {
-        $this->wizard->loadMissing('questions');
-
         $rules = [];
         $attributes = [];
 
-        foreach ($this->wizard->questions as $question) {
+        foreach ($this->questions as $question) {
             $key = 'answers.'.$question->id;
             $attributes[$key] = $question->label;
 
@@ -66,7 +77,7 @@ new #[Title('Fill wizard')] class extends Component
 
         $storedAnswers = [];
 
-        foreach ($this->wizard->questions as $question) {
+        foreach ($this->questions as $question) {
             $storedAnswers[] = [
                 'question_id' => $question->id,
                 'label' => $question->label,
@@ -84,6 +95,24 @@ new #[Title('Fill wizard')] class extends Component
 
         Flux::toast(variant: 'success', text: __('Thanks! Your responses have been saved.'));
     }
+
+    /**
+     * @return array<int, object{id: int, label: string, type: QuestionType, options: array<int, string>|null, is_required: bool}>
+     */
+    private function publishedQuestions(): array
+    {
+        $questions = $this->wizard->currentPublishedVersion->content['questions'] ?? [];
+
+        usort($questions, fn (array $a, array $b): int => $a['sort'] <=> $b['sort']);
+
+        return array_map(fn (array $question): object => (object) [
+            'id' => $question['id'],
+            'label' => $question['label'],
+            'type' => QuestionType::from($question['type']),
+            'options' => $question['options'],
+            'is_required' => $question['is_required'],
+        ], $questions);
+    }
 }; ?>
 
 <div class="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6">
@@ -99,9 +128,9 @@ new #[Title('Fill wizard')] class extends Component
             {{ __('All wizards') }}
         </flux:button>
 
-        <flux:heading size="xl">{{ $wizard->name }}</flux:heading>
-        @if ($wizard->description)
-            <flux:text class="mt-1">{{ $wizard->description }}</flux:text>
+        <flux:heading size="xl">{{ $name }}</flux:heading>
+        @if ($description)
+            <flux:text class="mt-1">{{ $description }}</flux:text>
         @endif
     </div>
 
@@ -117,7 +146,7 @@ new #[Title('Fill wizard')] class extends Component
         </flux:callout>
     @else
         <form wire:submit="submit" class="space-y-6">
-            @foreach ($wizard->questions as $question)
+            @foreach ($questions as $question)
                 @php
                     $field = 'answers.'.$question->id;
                 @endphp

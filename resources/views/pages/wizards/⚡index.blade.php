@@ -15,7 +15,8 @@ new #[Title('Wizards')] class extends Component
     {
         return Wizard::query()
             ->active()
-            ->withCount('questions')
+            ->published()
+            ->with('currentPublishedVersion')
             ->orderBy('name')
             ->get();
     }
@@ -34,12 +35,16 @@ new #[Title('Wizards')] class extends Component
                 wire:navigate
                 class="block rounded-xl border border-zinc-200 p-5 transition hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500"
             >
-                <flux:heading size="lg">{{ $wizard->name }}</flux:heading>
-                @if ($wizard->description)
-                    <flux:text class="mt-2 line-clamp-3">{{ $wizard->description }}</flux:text>
+                @php
+                    $content = $wizard->currentPublishedVersion->content;
+                    $questionCount = count($content['questions'] ?? []);
+                @endphp
+                <flux:heading size="lg">{{ $content['name'] }}</flux:heading>
+                @if ($content['description'] ?? null)
+                    <flux:text class="mt-2 line-clamp-3">{{ $content['description'] }}</flux:text>
                 @endif
                 <flux:text class="mt-4 text-sm">
-                    {{ trans_choice(':count question|:count questions', $wizard->questions_count, ['count' => $wizard->questions_count]) }}
+                    {{ trans_choice(':count question|:count questions', $questionCount, ['count' => $questionCount]) }}
                 </flux:text>
             </a>
         @empty

@@ -24,6 +24,11 @@ class WizardsTable
                 TextColumn::make('submissions_count')
                     ->counts('submissions')
                     ->label('Submissions'),
+                TextColumn::make('currentPublishedVersion.version')
+                    ->label('Published version')
+                    ->formatStateUsing(fn (?int $state): string => $state ? 'v'.$state : 'Not published')
+                    ->badge()
+                    ->color(fn (?int $state): string => $state ? 'success' : 'gray'),
                 IconColumn::make('is_active')
                     ->boolean()
                     ->label('Active'),

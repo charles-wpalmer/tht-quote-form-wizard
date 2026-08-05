@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Wizards;
 use App\Filament\Resources\Wizards\Pages\CreateWizard;
 use App\Filament\Resources\Wizards\Pages\EditWizard;
 use App\Filament\Resources\Wizards\Pages\ListWizards;
+use App\Filament\Resources\Wizards\RelationManagers\PublicationsRelationManager;
 use App\Filament\Resources\Wizards\Schemas\WizardForm;
 use App\Filament\Resources\Wizards\Tables\WizardsTable;
 use App\Models\Wizard;
@@ -36,7 +37,9 @@ class WizardResource extends Resource
 
     public static function getRelations(): array
     {
-        return [];
+        return [
+            PublicationsRelationManager::class,
+        ];
     }
 
     public static function getPages(): array
