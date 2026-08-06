@@ -72,14 +72,80 @@ class Wizard extends Model
     /**
      * Start a new draft version, ready to be amended and published.
      */
-    public function createDraft(): JourneyPublication
+    public function createDraft(bool $rollback = false): JourneyPublication
     {
         $nextVersion = ($this->publications()->max('version') ?? 0) + 1;
 
         return $this->publications()->create([
             'version' => $nextVersion,
             'status' => JourneyPublicationStatus::Draft,
+            'rollback' => $rollback,
         ]);
+    }
+
+    /**
+     * Publish a new version that reuses a prior publication's snapshot as-is, and restores
+     * the wizard's live editable state to match, so the admin editor shows what is live.
+     */
+    public function rollbackTo(JourneyPublication $publication, User $user): JourneyPublication
+    {
+        $draft = $this->createDraft(rollback: true);
+
+        $draft->publish($user, $publication->content);
+        $this->restoreLiveStateFrom($publication->content);
+
+        return $draft;
+    }
+
+    /**
+     * Overwrite this wizard's live editable name, description, and questions to match a
+     * previously published snapshot.
+     *
+     * @param  array<string, mixed>  $content
+     */
+    public function restoreLiveStateFrom(array $content): void
+    {
+        $this->update([
+            'name' => $content['name'],
+            'description' => $content['description'],
+        ]);
+
+        $this->questions()->delete();
+
+        foreach ($content['questions'] as $question) {
+            $this->questions()->create([
+                'key' => $question['key'],
+                'label' => $question['label'],
+                'type' => $question['type'],
+                'options' => $question['options'],
+                'is_required' => $question['is_required'],
+                'sort' => $question['sort'],
+            ]);
+        }
+    }
+
+    /**
+     * Snapshot this wizard's current questions and copy into a publishable content array.
+     *
+     * @return array<string, mixed>
+     */
+    public function snapshotContent(): array
+    {
+        $this->loadMissing('questions');
+
+        return [
+            'name' => $this->name,
+            'description' => $this->description,
+            'questions' => $this->questions->map(fn (Question $question): array => [
+                'id' => $question->id,
+                'key' => $question->key,
+                'label' => $question->label,
+                'type' => $question->type->value,
+                'options' => $question->options,
+                'is_required' => $question->is_required,
+                'sort' => $question->sort,
+            ])->all(),
+        ];
     }
 
     /**

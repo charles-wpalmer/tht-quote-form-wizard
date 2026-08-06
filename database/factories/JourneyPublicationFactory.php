@@ -24,6 +24,7 @@ class JourneyPublicationFactory extends Factory
             'version' => 1,
             'content' => null,
             'status' => JourneyPublicationStatus::Draft,
+            'rollback' => false,
         ];
     }
 
@@ -37,6 +38,13 @@ class JourneyPublicationFactory extends Factory
             ],
             'status' => JourneyPublicationStatus::Publish,
             'published_at' => now(),
+        ]);
+    }
+
+    public function rollback(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'rollback' => true,
         ]);
     }
 }

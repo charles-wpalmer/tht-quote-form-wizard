@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Wizards\RelationManagers;
 
 use App\Enums\JourneyPublicationStatus;
+use App\Filament\Resources\Wizards\WizardResource;
 use App\Models\JourneyPublication;
 use App\Models\Wizard;
 use Filament\Actions\Action;
@@ -11,6 +12,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -35,6 +37,9 @@ class PublicationsRelationManager extends RelationManager
                     ->sortable(),
                 TextColumn::make('status')
                     ->badge(),
+                IconColumn::make('rollback')
+                    ->label('Rollback')
+                    ->boolean(),
                 TextColumn::make('publisher.name')
                     ->label('Published by')
                     ->placeholder('—'),
@@ -79,6 +84,30 @@ class PublicationsRelationManager extends RelationManager
                             ->success()
                             ->send();
                     }),
+                Action::make('rollback')
+                    ->label('Rollback to this version')
+                    ->icon(Heroicon::OutlinedArrowUturnLeft)
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalDescription('This will republish this version\'s snapshot as-is and restore it as the wizard\'s live, editable questions and copy.')
+                    ->visible(function (JourneyPublication $record): bool {
+                        /** @var Wizard $wizard */
+                        $wizard = $this->getOwnerRecord();
+
+                        return $record->status === JourneyPublicationStatus::Publish
+                            && $record->id !== $wizard->current_published_version_id;
+                    })
+                    ->action(function (JourneyPublication $record): void {
+                        /** @var Wizard $wizard */
+                        $wizard = $this->getOwnerRecord();
+                        $new = $wizard->rollbackTo($record, auth()->user());
+
+                        Notification::make()
+                            ->title('Rolled back to v'.$record->version.', published as v'.$new->version)
+                            ->success()
+                            ->send();
+                    })
+                    ->successRedirectUrl(fn (JourneyPublication $record): string => WizardResource::getUrl('edit', ['record' => $record->wizard_id])),
                 DeleteAction::make()
                     ->visible(fn (JourneyPublication $record): bool => $record->status === JourneyPublicationStatus::Draft),
             ]);

@@ -106,3 +106,99 @@ test('amending the wizard after publishing does not change the published snapsho
     expect($publication->content['name'])->toBe('Original Name')
         ->and($wizard->fresh()->name)->toBe('Amended Name');
 });
+
+test('wizard model can roll back to a prior version', function () {
+    $user = User::factory()->create();
+    $wizard = Wizard::factory()->create(['name' => 'Version One Name']);
+
+    $v1 = $wizard->createDraft();
+    $v1->publish($user);
+
+    $wizard->update(['name' => 'Version Two Name']);
+    $wizard->createDraft()->publish($user);
+    $wizard->refresh();
+
+    $v3 = $wizard->rollbackTo($v1, $user);
+    $wizard->refresh();
+
+    expect($v3->version)->toBe(3)
+        ->and($v3->rollback)->toBeTrue()
+        ->and($v3->status)->toBe(JourneyPublicationStatus::Publish)
+        ->and($v3->published_by)->toBe($user->id)
+        ->and($v3->content['name'])->toBe('Version One Name')
+        ->and($wizard->current_published_version_id)->toBe($v3->id)
+        ->and($v1->fresh()->rollback)->toBeFalse()
+        ->and($wizard->name)->toBe('Version One Name');
+});
+
+test('rolling back restores a live question that was deleted after the target version was published', function () {
+    $user = User::factory()->create();
+    $wizard = Wizard::factory()->create(['name' => 'Quote Form']);
+
+    $keptQuestion = Question::factory()->create([
+        'wizard_id' => $wizard->id,
+        'label' => 'Full name',
+        'sort' => 1,
+    ]);
+    $deletedQuestion = Question::factory()->select()->create([
+        'wizard_id' => $wizard->id,
+        'label' => 'Package',
+        'sort' => 2,
+    ]);
+
+    $v1 = $wizard->createDraft();
+    $v1->publish($user);
+
+    // Delete a question live, then publish a v2 without it.
+    $deletedQuestion->delete();
+    $wizard->createDraft()->publish($user);
+    $wizard->refresh();
+
+    expect($wizard->questions()->pluck('label')->all())->toBe(['Full name']);
+
+    $wizard->rollbackTo($v1, $user);
+    $wizard->refresh();
+
+    $liveLabels = $wizard->questions()->orderBy('sort')->pluck('label')->all();
+
+    expect($liveLabels)->toBe(['Full name', 'Package']);
+
+    $restoredQuestion = $wizard->questions()->where('label', 'Package')->firstOrFail();
+
+    expect($restoredQuestion->id)->not->toBe($deletedQuestion->id)
+        ->and($restoredQuestion->type)->toBe(QuestionType::Select)
+        ->and($restoredQuestion->options)->toBe($deletedQuestion->options)
+        ->and($wizard->questions()->where('id', $keptQuestion->id)->exists())->toBeFalse();
+});
+
+test('admins can roll back to a prior version from the wizard edit page', function () {
+    $user = User::factory()->create();
+    $wizard = Wizard::factory()->create(['name' => 'Version One Name']);
+
+    $v1 = $wizard->createDraft();
+    $v1->publish($user);
+
+    $wizard->update(['name' => 'Version Two Name']);
+    $v2 = $wizard->createDraft();
+    $v2->publish($user);
+    $wizard->refresh();
+
+    $this->actingAs($user);
+
+    Livewire::test(PublicationsRelationManager::class, [
+        'ownerRecord' => $wizard,
+        'pageClass' => EditWizard::class,
+    ])
+        ->assertActionVisible(TestAction::make('rollback')->table($v1))
+        ->assertActionHidden(TestAction::make('rollback')->table($v2))
+        ->callAction(TestAction::make('rollback')->table($v1))
+        ->assertNotified();
+
+    $wizard->refresh();
+    $v3 = $wizard->publications()->where('version', 3)->firstOrFail();
+
+    expect($v3->rollback)->toBeTrue()
+        ->and($v3->content['name'])->toBe('Version One Name')
+        ->and($wizard->current_published_version_id)->toBe($v3->id)
+        ->and($wizard->name)->toBe('Version One Name');
+});

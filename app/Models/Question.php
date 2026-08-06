@@ -9,9 +9,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * @property int $id
+ * @property string $key
  * @property int $wizard_id
  * @property string $label
  * @property QuestionType $type
@@ -21,11 +23,18 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['wizard_id', 'label', 'type', 'options', 'is_required', 'sort'])]
+#[Fillable(['key', 'wizard_id', 'label', 'type', 'options', 'is_required', 'sort'])]
 class Question extends Model
 {
     /** @use HasFactory<QuestionFactory> */
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        static::creating(function (Question $question): void {
+            $question->key ??= (string) Str::uuid();
+        });
+    }
 
     /**
      * @return array<string, string>

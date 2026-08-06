@@ -16,12 +16,13 @@ use Illuminate\Support\Carbon;
  * @property int $version
  * @property array<string, mixed>|null $content
  * @property JourneyPublicationStatus $status
+ * @property bool $rollback
  * @property Carbon|null $published_at
  * @property int|null $published_by
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['wizard_id', 'version', 'status'])]
+#[Fillable(['wizard_id', 'version', 'status', 'rollback'])]
 class JourneyPublication extends Model
 {
     /** @use HasFactory<JourneyPublicationFactory> */
@@ -35,6 +36,7 @@ class JourneyPublication extends Model
         return [
             'status' => JourneyPublicationStatus::class,
             'content' => 'array',
+            'rollback' => 'boolean',
             'published_at' => 'datetime',
         ];
     }
@@ -56,25 +58,16 @@ class JourneyPublication extends Model
     }
 
     /**
-     * Snapshot the wizard's current questions/copy into this publication and make it the wizard's live version.
+     * Publish this version, making it the wizard's live version. Defaults to snapshotting the
+     * wizard's current questions/copy; pass an existing snapshot (e.g. from a prior publication)
+     * to republish it as-is, such as when rolling back.
+     *
+     * @param  array<string, mixed>|null  $content
      */
-    public function publish(User $publisher): void
+    public function publish(User $publisher, ?array $content = null): void
     {
-        $this->wizard->loadMissing('questions');
-
         $this->forceFill([
-            'content' => [
-                'name' => $this->wizard->name,
-                'description' => $this->wizard->description,
-                'questions' => $this->wizard->questions->map(fn (Question $question): array => [
-                    'id' => $question->id,
-                    'label' => $question->label,
-                    'type' => $question->type->value,
-                    'options' => $question->options,
-                    'is_required' => $question->is_required,
-                    'sort' => $question->sort,
-                ])->all(),
-            ],
+            'content' => $content ?? $this->wizard->snapshotContent(),
             'status' => JourneyPublicationStatus::Publish,
             'published_at' => now(),
             'published_by' => $publisher->id,
