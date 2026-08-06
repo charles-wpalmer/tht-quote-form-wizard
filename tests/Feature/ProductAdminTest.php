@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\Journey\PublishJourneyDraft;
+use App\Domains\Journey\Ports\JourneyRepository;
 use App\Filament\Resources\Products\Pages\CreateProduct;
 use App\Filament\Resources\Products\Pages\EditProduct;
 use App\Filament\Resources\Products\Pages\ListProducts;
@@ -118,14 +120,24 @@ test('a question key stays stable across rollback so product requirements keep w
 
     $product = Product::factory()->create(['wizard_id' => $wizard->id, 'required_questions' => [$originalKey]]);
 
-    $v1 = $wizard->createDraft();
-    $v1->publish($user);
+    $repository = app(JourneyRepository::class);
+
+    $v1 = $repository->createDraft($wizard);
+    app(PublishJourneyDraft::class)($v1, $user);
 
     $question->delete();
-    $wizard->createDraft()->publish($user);
+
+    // Publish v2 via the repository directly, bypassing the validation gate: this
+    // test is about the repository preserving a question's stable key across a
+    // delete/recreate cycle, not about the validation gate itself (covered
+    // separately in PublishJourneyDraftTest).
+    $v2 = $repository->createDraft($wizard);
+    $repository->publish($v2, $repository->loadDraft($wizard), $user);
     $wizard->refresh();
 
-    $wizard->rollbackTo($v1, $user);
+    $v3 = $repository->createDraft($wizard, rollback: true);
+    $repository->republish($v3, $v1, $user);
+    $repository->restoreLiveState($wizard, $v1->content);
     $wizard->refresh();
 
     $restoredQuestion = $wizard->questions()->where('label', 'Property address')->firstOrFail();

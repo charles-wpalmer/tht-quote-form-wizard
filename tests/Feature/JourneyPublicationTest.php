@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\Journey\PublishJourneyDraft;
+use App\Domains\Journey\Ports\JourneyRepository;
 use App\Enums\JourneyPublicationStatus;
 use App\Enums\QuestionType;
 use App\Filament\Resources\Wizards\Pages\EditWizard;
@@ -10,6 +12,21 @@ use App\Models\User;
 use App\Models\Wizard;
 use Filament\Actions\Testing\TestAction;
 use Livewire\Livewire;
+
+/**
+ * Mirrors what Wizard::rollbackTo() used to do, now that the orchestration lives on
+ * JourneyRepository and is inlined at each call site (the Filament action, and here).
+ */
+function rollbackWizardTo(Wizard $wizard, JourneyPublication $target, User $user): JourneyPublication
+{
+    $repository = app(JourneyRepository::class);
+
+    $new = $repository->createDraft($wizard, rollback: true);
+    $repository->republish($new, $target, $user);
+    $repository->restoreLiveState($wizard, $target->content);
+
+    return $new;
+}
 
 test('wizard model can create a draft and publish it', function () {
     $user = User::factory()->create();
@@ -22,16 +39,17 @@ test('wizard model can create a draft and publish it', function () {
         'sort' => 1,
     ]);
 
-    $draft = $wizard->createDraft();
+    $draft = app(JourneyRepository::class)->createDraft($wizard);
 
     expect($draft->version)->toBe(1)
         ->and($draft->status)->toBe(JourneyPublicationStatus::Draft)
         ->and($draft->content)->toBeNull();
 
-    $draft->publish($user);
+    $result = app(PublishJourneyDraft::class)($draft, $user);
     $wizard->refresh();
 
-    expect($draft->fresh()->status)->toBe(JourneyPublicationStatus::Publish)
+    expect($result->passed)->toBeTrue()
+        ->and($draft->fresh()->status)->toBe(JourneyPublicationStatus::Publish)
         ->and($draft->fresh()->published_by)->toBe($user->id)
         ->and($draft->fresh()->content['name'])->toBe('Home Quote')
         ->and($draft->fresh()->content['questions'])->toHaveCount(1)
@@ -42,9 +60,10 @@ test('wizard model can create a draft and publish it', function () {
 test('creating a second draft increments the version', function () {
     $user = User::factory()->create();
     $wizard = Wizard::factory()->create();
+    $repository = app(JourneyRepository::class);
 
-    $wizard->createDraft()->publish($user);
-    $second = $wizard->createDraft();
+    app(PublishJourneyDraft::class)($repository->createDraft($wizard), $user);
+    $second = $repository->createDraft($wizard);
 
     expect($second->version)->toBe(2);
 });
@@ -74,7 +93,7 @@ test('admins can publish a draft from the wizard edit page', function () {
         'label' => 'Your name',
     ]);
 
-    $draft = $wizard->createDraft();
+    $draft = app(JourneyRepository::class)->createDraft($wizard);
 
     $this->actingAs($user);
 
@@ -97,7 +116,7 @@ test('amending the wizard after publishing does not change the published snapsho
     $user = User::factory()->create();
     $wizard = Wizard::factory()->create(['name' => 'Original Name']);
 
-    $wizard->createDraft()->publish($user);
+    app(PublishJourneyDraft::class)(app(JourneyRepository::class)->createDraft($wizard), $user);
 
     $wizard->update(['name' => 'Amended Name']);
 
@@ -110,15 +129,16 @@ test('amending the wizard after publishing does not change the published snapsho
 test('wizard model can roll back to a prior version', function () {
     $user = User::factory()->create();
     $wizard = Wizard::factory()->create(['name' => 'Version One Name']);
+    $repository = app(JourneyRepository::class);
 
-    $v1 = $wizard->createDraft();
-    $v1->publish($user);
+    $v1 = $repository->createDraft($wizard);
+    app(PublishJourneyDraft::class)($v1, $user);
 
     $wizard->update(['name' => 'Version Two Name']);
-    $wizard->createDraft()->publish($user);
+    app(PublishJourneyDraft::class)($repository->createDraft($wizard), $user);
     $wizard->refresh();
 
-    $v3 = $wizard->rollbackTo($v1, $user);
+    $v3 = rollbackWizardTo($wizard, $v1, $user);
     $wizard->refresh();
 
     expect($v3->version)->toBe(3)
@@ -134,6 +154,7 @@ test('wizard model can roll back to a prior version', function () {
 test('rolling back restores a live question that was deleted after the target version was published', function () {
     $user = User::factory()->create();
     $wizard = Wizard::factory()->create(['name' => 'Quote Form']);
+    $repository = app(JourneyRepository::class);
 
     $keptQuestion = Question::factory()->create([
         'wizard_id' => $wizard->id,
@@ -146,17 +167,17 @@ test('rolling back restores a live question that was deleted after the target ve
         'sort' => 2,
     ]);
 
-    $v1 = $wizard->createDraft();
-    $v1->publish($user);
+    $v1 = $repository->createDraft($wizard);
+    app(PublishJourneyDraft::class)($v1, $user);
 
     // Delete a question live, then publish a v2 without it.
     $deletedQuestion->delete();
-    $wizard->createDraft()->publish($user);
+    app(PublishJourneyDraft::class)($repository->createDraft($wizard), $user);
     $wizard->refresh();
 
     expect($wizard->questions()->pluck('label')->all())->toBe(['Full name']);
 
-    $wizard->rollbackTo($v1, $user);
+    rollbackWizardTo($wizard, $v1, $user);
     $wizard->refresh();
 
     $liveLabels = $wizard->questions()->orderBy('sort')->pluck('label')->all();
@@ -174,13 +195,14 @@ test('rolling back restores a live question that was deleted after the target ve
 test('admins can roll back to a prior version from the wizard edit page', function () {
     $user = User::factory()->create();
     $wizard = Wizard::factory()->create(['name' => 'Version One Name']);
+    $repository = app(JourneyRepository::class);
 
-    $v1 = $wizard->createDraft();
-    $v1->publish($user);
+    $v1 = $repository->createDraft($wizard);
+    app(PublishJourneyDraft::class)($v1, $user);
 
     $wizard->update(['name' => 'Version Two Name']);
-    $v2 = $wizard->createDraft();
-    $v2->publish($user);
+    $v2 = $repository->createDraft($wizard);
+    app(PublishJourneyDraft::class)($v2, $user);
     $wizard->refresh();
 
     $this->actingAs($user);

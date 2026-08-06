@@ -56,23 +56,4 @@ class JourneyPublication extends Model
     {
         return $this->belongsTo(User::class, 'published_by');
     }
-
-    /**
-     * Publish this version, making it the wizard's live version. Defaults to snapshotting the
-     * wizard's current questions/copy; pass an existing snapshot (e.g. from a prior publication)
-     * to republish it as-is, such as when rolling back.
-     *
-     * @param  array<string, mixed>|null  $content
-     */
-    public function publish(User $publisher, ?array $content = null): void
-    {
-        $this->forceFill([
-            'content' => $content ?? $this->wizard->snapshotContent(),
-            'status' => JourneyPublicationStatus::Publish,
-            'published_at' => now(),
-            'published_by' => $publisher->id,
-        ])->save();
-
-        $this->wizard->forceFill(['current_published_version_id' => $this->id])->save();
-    }
 }

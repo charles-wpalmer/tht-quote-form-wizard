@@ -1,11 +1,24 @@
 <?php
 
+use App\Actions\Journey\PublishJourneyDraft;
+use App\Domains\Journey\Ports\JourneyRepository;
 use App\Enums\QuestionType;
 use App\Models\Question;
 use App\Models\Submission;
 use App\Models\User;
 use App\Models\Wizard;
 use Livewire\Livewire;
+
+/**
+ * Publishes a wizard's current live state as a new version, matching the old
+ * $wizard->createDraft()->publish($user) shorthand.
+ */
+function publishWizard(Wizard $wizard, User $user): void
+{
+    $repository = app(JourneyRepository::class);
+
+    app(PublishJourneyDraft::class)($repository->createDraft($wizard), $user);
+}
 
 test('guests cannot view wizards', function () {
     $this->get(route('wizards.index'))->assertRedirect(route('login'));
@@ -14,7 +27,7 @@ test('guests cannot view wizards', function () {
 test('authenticated users can view active wizards', function () {
     $user = User::factory()->create();
     $active = Wizard::factory()->create(['name' => 'Quote Form']);
-    $active->createDraft()->publish($user);
+    publishWizard($active, $user);
     Wizard::factory()->inactive()->create(['name' => 'Hidden Wizard']);
 
     $this->actingAs($user)
@@ -27,7 +40,7 @@ test('authenticated users can view active wizards', function () {
 test('unpublished wizards are hidden and return not found', function () {
     $user = User::factory()->create();
     $wizard = Wizard::factory()->create(['name' => 'Draft Only Wizard']);
-    $wizard->createDraft();
+    app(JourneyRepository::class)->createDraft($wizard);
 
     $this->actingAs($user)
         ->get(route('wizards.index'))
@@ -56,7 +69,7 @@ test('users can submit a wizard form', function () {
         'sort' => 2,
     ]);
 
-    $wizard->createDraft()->publish($user);
+    publishWizard($wizard, $user);
     $wizard->refresh();
 
     $this->actingAs($user);
@@ -88,7 +101,7 @@ test('required questions are validated', function () {
         'is_required' => true,
     ]);
 
-    $wizard->createDraft()->publish($user);
+    publishWizard($wizard, $user);
     $wizard->refresh();
 
     $this->actingAs($user);

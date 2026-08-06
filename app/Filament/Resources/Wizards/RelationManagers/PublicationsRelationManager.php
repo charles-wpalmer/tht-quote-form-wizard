@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Wizards\RelationManagers;
 
+use App\Actions\Journey\PublishJourneyDraft;
+use App\Domains\Journey\Ports\JourneyRepository;
 use App\Enums\JourneyPublicationStatus;
 use App\Filament\Resources\Wizards\WizardResource;
 use App\Models\JourneyPublication;
@@ -60,7 +62,7 @@ class PublicationsRelationManager extends RelationManager
                     ->action(function (): void {
                         /** @var Wizard $wizard */
                         $wizard = $this->getOwnerRecord();
-                        $wizard->createDraft();
+                        app(JourneyRepository::class)->createDraft($wizard);
 
                         Notification::make()
                             ->title('Draft created')
@@ -77,7 +79,17 @@ class PublicationsRelationManager extends RelationManager
                     ->modalDescription('This will snapshot the wizard\'s current questions and copy, and make it the version visitors see.')
                     ->visible(fn (JourneyPublication $record): bool => $record->status === JourneyPublicationStatus::Draft)
                     ->action(function (JourneyPublication $record): void {
-                        $record->publish(auth()->user());
+                        $result = app(PublishJourneyDraft::class)($record, auth()->user());
+
+                        if (! $result->passed) {
+                            Notification::make()
+                                ->title('Cannot publish v'.$record->version)
+                                ->body(implode("\n", $result->errors))
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
 
                         Notification::make()
                             ->title('Published v'.$record->version)
@@ -100,7 +112,11 @@ class PublicationsRelationManager extends RelationManager
                     ->action(function (JourneyPublication $record): void {
                         /** @var Wizard $wizard */
                         $wizard = $this->getOwnerRecord();
-                        $new = $wizard->rollbackTo($record, auth()->user());
+                        $repository = app(JourneyRepository::class);
+
+                        $new = $repository->createDraft($wizard, rollback: true);
+                        $repository->republish($new, $record, auth()->user());
+                        $repository->restoreLiveState($wizard, $record->content);
 
                         Notification::make()
                             ->title('Rolled back to v'.$record->version.', published as v'.$new->version)
