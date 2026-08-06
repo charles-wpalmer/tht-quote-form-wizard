@@ -25,23 +25,33 @@ flowchart TB
     Provider["DomainServiceProvider<br/>(binds ports → adapters)"]
 
     subgraph JourneySide["Journey Domain"]
-        Validate["ValidateJourneyDraft (service)"]
-        Draft["JourneyDraft / ValidationResult (value objects)"]
-        JourneyPort["JourneyRepository (port)"]
-        JourneyAdapter["EloquentJourneyRepository (adapter)"]
-        WizardModels["Wizard / JourneyPublication / Question"]
+        subgraph JourneyAdapterRing["Adapter (Illuminate/Eloquent)"]
+            JourneyAdapter["EloquentJourneyRepository"]
+            WizardModels["Wizard / JourneyPublication / Question"]
 
-        JourneyAdapter -. implements .-> JourneyPort
-        JourneyAdapter --> WizardModels
+            subgraph JourneyCore["Core (plain PHP)"]
+                Validate["ValidateJourneyDraft (service)"]
+                Draft["JourneyDraft / ValidationResult (value objects)"]
+                JourneyPort["JourneyRepository (port)"]
+            end
+
+            JourneyAdapter -. implements .-> JourneyPort
+            JourneyAdapter --> WizardModels
+        end
     end
 
     subgraph ProductSide["Product Domain"]
-        ProductPort["ProductRequirementsProvider (port)"]
-        ProductAdapter["EloquentProductRequirementsProvider (adapter)"]
-        ProductModel["Product"]
+        subgraph ProductAdapterRing["Adapter (Illuminate/Eloquent)"]
+            ProductAdapter["EloquentProductRequirementsProvider"]
+            ProductModel["Product"]
 
-        ProductAdapter -. implements .-> ProductPort
-        ProductAdapter --> ProductModel
+            subgraph ProductCore["Core (plain PHP)"]
+                ProductPort["ProductRequirementsProvider (port)"]
+            end
+
+            ProductAdapter -. implements .-> ProductPort
+            ProductAdapter --> ProductModel
+        end
     end
 
     RM -- publish --> Action
@@ -54,7 +64,7 @@ flowchart TB
     Provider -. binds .-> ProductAdapter
 ```
 
-Solid arrows = calls/depends on. Dotted `implements` = the Eloquent adapter satisfies the domain's port. Dotted `binds` = DI wiring registered in `DomainServiceProvider`. The bold arrow is the only edge that crosses the domain boundary: `ValidateJourneyDraft` (Journey) depends solely on the `ProductRequirementsProvider` interface — it never knows `Product` (the Eloquent model) exists, only `EloquentProductRequirementsProvider` does.
+Solid arrows = calls/depends on. Dotted `implements` = the Eloquent adapter satisfies the domain's port. Dotted `binds` = DI wiring registered in `DomainServiceProvider`. Each domain is drawn as a **core wrapped by its adapter** — the plain-PHP `Core` (service, value objects, port) sits inside the `Adapter` ring, and only the adapter is allowed to reach outward to the Eloquent models. The bold arrow is the one edge crossing the domain boundary: `ValidateJourneyDraft` (Journey core) depends solely on the `ProductRequirementsProvider` interface — it never knows `Product` (the Eloquent model) exists, only `EloquentProductRequirementsProvider` does.
 
 ## Trade off's
 
@@ -73,6 +83,11 @@ Solid arrows = calls/depends on. Dotted `implements` = the Eloquent adapter sati
    bit here potentially as if we 'rollback' we then have 2 versions that are the same.
 - Tradeoff is that no 'audit log' would be required to keep track of the change and who by. Handled automatically
   with a new record. Table bloat?
+
+### Product
+- Very specific bound entry port for ProductRequirementsProvider, means we can't have a generic Product provider
+  that we can use for other purposes. - however I prefer where possible having small purposeful classes like this
+  that are obvious in what they do - paarticularly for 
 
 ## Evolving
 - Multi validation of published draft before being able to publish.
