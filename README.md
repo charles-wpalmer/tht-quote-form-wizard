@@ -87,7 +87,7 @@ Solid arrows = calls/depends on. Dotted `implements` = the Eloquent adapter sati
 ### Product
 - Very specific bound entry port for ProductRequirementsProvider, means we can't have a generic Product provider
   that we can use for other purposes. - however I prefer where possible having small purposeful classes like this
-  that are obvious in what they do - paarticularly for 
+  that are obvious in what they do - particularly for a port being used by another domain.
 
 ## Evolving
 - Multi validation of published draft before being able to publish.
